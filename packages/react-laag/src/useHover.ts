@@ -1,4 +1,3 @@
-// fixing buggy version of https://github.com/everweij/react-laag/blob/master/packages/react-laag/src/useHover.ts
 import { useState, useRef, useCallback, useEffect, MouseEvent } from "react";
 
 export type UseHoverOptions = {
