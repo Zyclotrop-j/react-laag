@@ -1,3 +1,4 @@
+// fixing buggy version of https://github.com/everweij/react-laag/blob/master/packages/react-laag/src/useHover.ts
 import { useState, useRef, useCallback, useEffect, MouseEvent } from "react";
 
 export type UseHoverOptions = {
@@ -28,12 +29,6 @@ export type UseHoverProps = {
   onTouchEnd: PlainCallback;
 };
 
-enum Status {
-  ENTERING,
-  LEAVING,
-  IDLE
-}
-
 export function useHover({
   delayEnter = 0,
   delayLeave = 0,
@@ -41,21 +36,25 @@ export function useHover({
 }: UseHoverOptions = {}): readonly [boolean, UseHoverProps, () => void] {
   const [show, setShow] = useState(false);
 
-  const timeout = useRef<number | null>(null);
-
-  const status = useRef<Status>(Status.IDLE);
+  // single state: 
+  // when enterTimeout is set, then it's also entering
+  const enterTimeout = useRef<number | null>(null);
+  // when exitTimeout is set, then it's also leaving
+  const exitTimeout = useRef<number | null>(null);
 
   const hasTouchMoved = useRef<boolean>(false);
 
+  // cleanup all timeouts
   const removeTimeout = useCallback(function removeTimeout() {
-    clearTimeout(timeout.current!);
-    timeout.current = null;
-    status.current = Status.IDLE;
+    if(enterTimeout.current) clearTimeout(enterTimeout.current);
+    if(exitTimeout.current) clearTimeout(exitTimeout.current);
+    enterTimeout.current = null;
+    exitTimeout.current = null;
   }, []);
 
   function onMouseEnter() {
     // if was leaving, stop leaving
-    if (status.current === Status.LEAVING && timeout.current) {
+    if (exitTimeout.current) {
       removeTimeout();
     }
 
@@ -63,18 +62,20 @@ export function useHover({
       return;
     }
 
-    status.current = Status.ENTERING;
-    timeout.current = window.setTimeout(() => {
+    // we're already entering and this is just a second onMouseEnter event, e.g., from a child element or maybe we have two triggers
+    if(enterTimeout.current) return;
+
+    // schedule entering
+    enterTimeout.current = window.setTimeout(() => {
       setShow(true);
-      timeout.current = null;
-      status.current = Status.IDLE;
+      enterTimeout.current = null;
     }, delayEnter);
   }
 
-  function onMouseLeave(_: MouseEvent<any>, immediate?: boolean) {
+  function onMouseLeave(_: MouseEvent<unknown>, immediate?: boolean) {
     // if was waiting for entering,
     // clear timeout
-    if (status.current === Status.ENTERING && timeout.current) {
+    if (enterTimeout.current) {
       removeTimeout();
     }
 
@@ -84,16 +85,17 @@ export function useHover({
 
     if (immediate) {
       setShow(false);
-      timeout.current = null;
-      status.current = Status.IDLE;
+      removeTimeout();
       return;
     }
 
-    status.current = Status.LEAVING;
-    timeout.current = window.setTimeout(() => {
+    // we're already leaving and this is just a second onMouseEnter event
+    if(exitTimeout.current) return;
+
+    // schedule leaving
+    exitTimeout.current = window.setTimeout(() => {
       setShow(false);
-      timeout.current = null;
-      status.current = Status.IDLE;
+      exitTimeout.current = null;
     }, delayLeave);
   }
 
@@ -110,12 +112,13 @@ export function useHover({
 
     return () => {
       window.removeEventListener("scroll", onScroll, true);
-
-      if (timeout.current) {
-        clearTimeout(timeout.current);
-      }
     };
   }, [show, hideOnScroll, removeTimeout]);
+  useEffect(() => {
+    return () => {
+        removeTimeout()
+    };
+  }, [removeTimeout])
 
   const hoverProps: UseHoverProps = {
     onMouseEnter,
